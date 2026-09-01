@@ -1,0 +1,27 @@
+# Use from the OOB management server or a trusted runner with SSH reachability.
+# Replace names/IPs/users with discovered Air values; enroll SSH keys first.
+all:
+  vars:
+    ansible_user: admin
+    ansible_become: true
+    ansible_python_interpreter: /usr/bin/python3
+  children:
+    sonic:
+      hosts:
+        spine01:
+        spine02:
+        leaf01:
+        leaf02:
+        leaf03:
+        leaf04:
+    linux:
+      vars:
+        ansible_user: ubuntu
+      hosts:
+        server01:
+        server02:
+        server03:
+        server04:
+        router01:
+        trex01:
+        trex02:

@@ -1,0 +1,117 @@
+---
+# Alternative transport for images WITHOUT the Air agent.
+# Uses identical generated config, apply, verification and TRex scripts.
+- name: Prepare payloads
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    repo: "{{ playbook_dir }}/.."
+    manifest: "{{ lookup('file', repo + '/build/manifest.json') | from_json }}"
+    traffic: "{{ lookup('file', repo + '/models/traffic.yml') | from_yaml }}"
+    routing: "{{ lookup('file', repo + '/models/routing.yml') | from_yaml }}"
+  tasks:
+    - name: Create lab directory
+      ansible.builtin.file:
+        path: /var/lib/fabriclab/payload
+        state: directory
+        mode: '0700'
+    - name: Copy execution scripts
+      ansible.builtin.copy:
+        src: "{{ repo }}/scripts/{{ item }}"
+        dest: "/var/lib/fabriclab/payload/{{ item }}"
+        mode: '0700'
+      loop: [node_apply.py, node_verify.py, linux_apply.py, trex_install.py, trex_run.py, traffic_assert.py]
+    - name: Set node payload
+      ansible.builtin.set_fact:
+        node_data: "{{ manifest.nodes[inventory_hostname] | combine({'trex_nodes': traffic.nodes, 'gateways': routing.interfaces}) }}"
+    - name: Copy node payload
+      ansible.builtin.copy:
+        content: "{{ node_data | to_nice_json }}"
+        dest: /var/lib/fabriclab/payload/node.json
+        mode: '0600'
+    - name: Copy generated node files
+      ansible.builtin.copy:
+        src: "{{ repo }}/build/{{ inventory_hostname }}/"
+        dest: /var/lib/fabriclab/payload/
+        mode: '0600'
+    - name: Preflight SONiC
+      ansible.builtin.command: python3 /var/lib/fabriclab/payload/node_apply.py /var/lib/fabriclab/payload --preflight
+      changed_when: false
+      when: inventory_hostname in groups.sonic
+
+- name: Configure fabric
+  hosts: sonic
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Set outer VM NIC MTUs
+      ansible.builtin.command: "ip link set dev {{ item }} mtu 9238"
+      loop: "{{ node_data.air_ports }}"
+      changed_when: true
+    - name: Apply SONiC configuration
+      ansible.builtin.command: python3 /var/lib/fabriclab/payload/node_apply.py /var/lib/fabriclab/payload
+      changed_when: true
+
+- name: Configure Linux endpoints and router
+  hosts: linux
+  gather_facts: false
+  tasks:
+    - name: Apply data interfaces and routing
+      ansible.builtin.command: python3 /var/lib/fabriclab/payload/linux_apply.py /var/lib/fabriclab/payload/node.json
+      changed_when: true
+      when: node_data.expected.kind != 'trex'
+    - name: Install TRex
+      ansible.builtin.command: python3 /var/lib/fabriclab/payload/trex_install.py /var/lib/fabriclab/payload/node.json
+      changed_when: true
+      when: node_data.expected.kind == 'trex'
+
+- name: Verify network
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Check BGP EVPN and forwarding
+      ansible.builtin.command: python3 /var/lib/fabriclab/payload/node_verify.py /var/lib/fabriclab/payload/expected.json
+      changed_when: false
+      when: node_data.expected.kind in ['sonic','host']
+
+- name: Run coordinated TRex test
+  hosts: trex01:trex02
+  gather_facts: false
+  vars:
+    repo: "{{ playbook_dir }}/.."
+    traffic: "{{ lookup('file', repo + '/models/traffic.yml') | from_yaml }}"
+    routing: "{{ lookup('file', repo + '/models/routing.yml') | from_yaml }}"
+  tasks:
+    - name: Wait for local TRex RPC
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 4501
+        timeout: 120
+    - name: Choose common start time on controller
+      ansible.builtin.set_fact:
+        traffic_start: "{{ lookup('pipe', 'date +%s') | int + 90 }}"
+      run_once: true
+    - name: Copy traffic parameters
+      ansible.builtin.copy:
+        content: "{{ {'name': inventory_hostname, 'local': traffic.nodes[inventory_hostname], 'remote': traffic.nodes['trex02' if inventory_hostname == 'trex01' else 'trex01'], 'gateways': routing.interfaces, 'pps': traffic.pps, 'duration_seconds': traffic.duration_seconds, 'packet_size': traffic.packet_size, 'start_at': traffic_start | int} | to_nice_json }}"
+        dest: /var/lib/fabriclab/payload/traffic_run.json
+        mode: '0600'
+    - name: Start traffic
+      ansible.builtin.command: python3 /var/lib/fabriclab/payload/trex_run.py /var/lib/fabriclab/payload/traffic_run.json
+      async: 240
+      poll: 0
+      register: traffic_job
+      changed_when: true
+    - name: Wait for traffic verification
+      ansible.builtin.async_status:
+        jid: "{{ traffic_job.ansible_job_id }}"
+      register: traffic_result
+      until: traffic_result.finished
+      retries: 50
+      delay: 5
+    - name: Fetch TRex measurements
+      ansible.builtin.fetch:
+        src: /var/lib/fabriclab/reports/trex.json
+        dest: "{{ repo }}/build/{{ inventory_hostname }}-metrics.json"
+        flat: true

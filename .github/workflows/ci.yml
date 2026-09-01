@@ -1,0 +1,26 @@
+name: Validate fabric
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q --junitxml=build/tests.xml
+      - run: python -m fabriclab validate
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fabric-preview-${{ github.sha }}
+          path: build/
+          retention-days: 14

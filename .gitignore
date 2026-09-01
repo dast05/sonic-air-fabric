@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+build/
+state/
+.env
+*.pem
+*.key
+ansible/inventory.local.yml

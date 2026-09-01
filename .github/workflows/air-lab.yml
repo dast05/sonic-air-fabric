@@ -1,0 +1,74 @@
+name: NVIDIA Air lab
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Air operation
+        type: choice
+        options: [discover, provision, deploy, stop]
+        default: discover
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: sonic-air-lab
+  cancel-in-progress: false
+jobs:
+  lab:
+    # PRs never receive Air credentials. Automatic CD starts only after setup.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.AIR_AUTO_DEPLOY == 'true')
+    environment: air-lab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NGC_API_KEY: ${{ secrets.NGC_API_KEY }}
+      AIR_SONIC_IMAGE: ${{ vars.AIR_SONIC_IMAGE }}
+      AIR_HOST_IMAGE: ${{ vars.AIR_HOST_IMAGE }}
+      AIR_TREX_IMAGE: ${{ vars.AIR_TREX_IMAGE }}
+      TREX_ARCHIVE_SHA256: ${{ vars.TREX_ARCHIVE_SHA256 }}
+      LAB_OPERATION: ${{ inputs.operation || 'deploy' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Unit tests and intent validation
+        run: |
+          python -m pytest -q --junitxml=build/tests.xml
+          python -m fabriclab validate
+      - name: Operate lab through Air agent
+        if: vars.AIR_TRANSPORT != 'ssh' || env.LAB_OPERATION != 'deploy'
+        run: python -m fabriclab "$LAB_OPERATION"
+      - name: Provision lab for SSH transport
+        if: vars.AIR_TRANSPORT == 'ssh' && env.LAB_OPERATION == 'deploy'
+        run: python -m fabriclab provision
+      - name: Configure and test through SSH
+        if: vars.AIR_TRANSPORT == 'ssh' && env.LAB_OPERATION == 'deploy'
+        env:
+          SSH_INVENTORY: ${{ secrets.AIR_SSH_INVENTORY }}
+          SSH_KEY: ${{ secrets.AIR_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.AIR_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_INVENTORY" && test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          pip install -r ansible/requirements.txt
+          umask 077
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$SSH_INVENTORY" > ansible/inventory.local.yml
+          ansible-playbook -i ansible/inventory.local.yml ansible/lab.yml
+      - name: Remove temporary SSH credentials
+        if: always()
+        run: rm -f "$HOME/.ssh/id_ed25519" ansible/inventory.local.yml
+      - name: Publish run summary
+        if: always()
+        run: python scripts/summary.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: air-lab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/
+          retention-days: 14

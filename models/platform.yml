@@ -1,0 +1,19 @@
+# Reference: NVIDIA sonic-demo-evpn-vxlan. Bind exact available image UUIDs
+# using the discover workflow before deployment; names below are hints only.
+profile: community-sonic-split-unified
+sonic_image_hint: sonic-vs-202305
+host_image_hint: generic/ubuntu2404
+sonic: {cpu: 2, memory: 4096, storage: 20}
+host: {cpu: 1, memory: 1024, storage: 10}
+# Air NIC names and SONiC front-panel names are DIFFERENT namespaces.
+leaf_uplinks:
+  - {air: eth3, sonic: Ethernet8}
+  - {air: eth4, sonic: Ethernet12}
+leaf_access: {air: eth1, sonic: Ethernet0}
+spine_downlinks:
+  - {air: eth1, sonic: Ethernet0}
+  - {air: eth2, sonic: Ethernet4}
+  - {air: eth3, sonic: Ethernet8}
+  - {air: eth4, sonic: Ethernet12}
+# Do not silently remove any virtual image firewall rules.
+# If the chosen image requires NVIDIA's ebtables workaround, diagnose it first.

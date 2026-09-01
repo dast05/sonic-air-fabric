@@ -1,0 +1,22 @@
+# Intent model, not native SONiC syntax. IPv4 eBGP + L2 EVPN/VXLAN.
+name: sonic-lab-01
+underlay:
+  link_pool: 10.0.0.0/24
+  mtu: 9100
+spines:
+  spine01: {asn: 65000, loopback: 10.255.0.1/32}
+  spine02: {asn: 65001, loopback: 10.255.0.2/32}
+leafs:
+  leaf01: {asn: 65101, loopback: 10.255.0.11/32}
+  leaf02: {asn: 65102, loopback: 10.255.0.12/32}
+  leaf03: {asn: 65103, loopback: 10.255.0.13/32}
+  leaf04: {asn: 65104, loopback: 10.255.0.14/32}
+# Separate subnets; router01 provides inter-VNI routing.
+networks:
+  red: {vlan: 100, vni: 10100, subnet: 192.168.100.0/24}
+  blue: {vlan: 200, vni: 10200, subnet: 192.168.200.0/24}
+hosts:
+  server01: {leaf: leaf01, network: red, address: 192.168.100.11/24}
+  server02: {leaf: leaf02, network: red, address: 192.168.100.12/24}
+  server03: {leaf: leaf03, network: blue, address: 192.168.200.13/24}
+  server04: {leaf: leaf04, network: blue, address: 192.168.200.14/24}

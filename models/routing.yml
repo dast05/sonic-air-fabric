@@ -1,0 +1,15 @@
+# External inter-VNI routing. The leaf switches remain L2 EVPN VTEPs.
+name: router01
+resources: {cpu: 2, memory: 2048, storage: 10}
+leaf_port: {air: eth5, sonic: Ethernet16}
+interfaces:
+  red:
+    leaf: leaf01
+    air: eth1
+    address: 192.168.100.1/24
+    mac: '02:00:00:aa:00:01'
+  blue:
+    leaf: leaf03
+    air: eth2
+    address: 192.168.200.1/24
+    mac: '02:00:00:bb:00:01'

@@ -1,0 +1,18 @@
+# Two TRex STL instances, each attached to both isolated networks.
+# Installed from an explicit release URL + SHA256 supplied as Actions variables.
+resources: {cpu: 4, memory: 4096, storage: 20}
+ports:
+  red: {air: eth1, mac_prefix: '02:00:00:10'}
+  blue: {air: eth2, mac_prefix: '02:00:00:20'}
+leaf_port: {air: eth2, sonic: Ethernet4}
+nodes:
+  trex01:
+    red: {leaf: leaf01, address: 192.168.100.101, mac: '02:00:00:10:00:01'}
+    blue: {leaf: leaf03, address: 192.168.200.101, mac: '02:00:00:20:00:01'}
+  trex02:
+    red: {leaf: leaf02, address: 192.168.100.102, mac: '02:00:00:10:00:02'}
+    blue: {leaf: leaf04, address: 192.168.200.102, mac: '02:00:00:20:00:02'}
+# Modest rates: virtual simulation validates forwarding, not ASIC capacity.
+pps: 1000
+duration_seconds: 10
+packet_size: 256
